@@ -3,8 +3,7 @@ import os
 
 from inventree.api import InvenTreeAPI
 from inventree.company import SupplierPart, Company, ManufacturerPart
-from inventree.part import Part, PartCategory, Parameter, ParameterTemplate
-from inventree.order import PurchaseOrderLineItem, PurchaseOrder
+from inventree.part import Part, PartCategory, Parameter, ParameterTemplate, BomItem
 
 from pathlib import Path
 
@@ -65,26 +64,23 @@ def load_config():
             catagory_map[cat] = match_cat[0]
 
 
-def import_digikey_part(partnum: str, prompt=False):
-    dkpart = get_part_from_part_number(partnum, prompt)
-    return add_digikey_part(dkpart)
 
+# Take a Digikey part and add it to inventree
 def add_digikey_part(dkpart: DigiPart):
     if API is None:
         load_config()
     dk = get_digikey_supplier()
     inv_part = create_inventree_part(dkpart)
-    if inv_part == -1:
-        return
     base_pk = int(inv_part.pk)
     mfg = find_manufacturer(dkpart)
 
-    ManufacturerPart.create(API, {
-        'part': base_pk,
-        'supplier': dk.pk,
-        'MPN': dkpart.mfg_part_num,
-        'manufacturer': mfg.pk
-        })
+    if find_manufacurer_part(dkpart.mfg_part_num) is None:
+        ManufacturerPart.create(API, {
+            'part': base_pk,
+            'supplier': dk.pk,
+            'MPN': dkpart.mfg_part_num,
+            'manufacturer': mfg.pk
+            })
 
     return SupplierPart.create(API, {
             "part":base_pk,
@@ -111,16 +107,55 @@ def get_digikey_supplier():
         return dk[0]
 
 
+# Find part in inventree
+def find_part(part_number):
+    if API is None:
+        load_config()
+    # for some reason, the Part.list() function is not filtering on name properly
+    possible_parts = Part.list(API)
+    if len(possible_parts) > 0:
+        for part in possible_parts:
+            if part.name.lower() == part_number.lower():
+                return part
+    return None
+
+
+
+# Find part in inventree
+def find_manufacurer_part(part_number):
+    if API is None:
+        load_config()
+    # for some reason, the Part.list() function is not filtering on name properly
+    possible_parts = ManufacturerPart.list(API)
+    if len(possible_parts) > 0:
+        for part in possible_parts:
+            if part.MPN.lower() == part_number.lower():
+                return part
+    return None
+
+
+# Find part in inventree using the Digikey part number
+def find_digikey_part(dk_part_number):
+    if API is None:
+        load_config()
+    # for some reason, the Part.list() function is not filtering on name properly
+    possible_parts = SupplierPart.list(API, SKU=dk_part_number)
+    if len(possible_parts) > 0:
+        for part in possible_parts:
+            print(f"SKU: {part.SKU}, park number: {part.part}")
+            if part.SKU.lower() == dk_part_number.lower():
+                return Part(API, part.part)
+    return None
+
+
 def create_inventree_part(dkpart: DigiPart):
     if API is None:
         load_config()
     category = find_category(dkpart)
-    possible_parts = Part.list(API, name=dkpart.name, description=dkpart.description)
-    if len(possible_parts) > 0:
-        part_names = [p.name.lower() for p in possible_parts]
-        if dkpart.name.lower() in part_names:
-            print("Part already exists")
-            return -1
+    possible_part = find_part(dkpart.name)
+    if possible_part is not None:
+        print(f"Part already exists {possible_part.name}")
+        return possible_part
     part = Part.create(API, {
         'name': dkpart.name,
         'description': dkpart.description,
@@ -182,14 +217,14 @@ def create_manufacturer(name: str, is_supplier: bool=False):
         })
     return mfg
 
-def upload_picture(dkpart: DigiPart, invPart):
-    if dkpart.picture is not None:
+def upload_picture(dkpart: DigiPart, invPart: Part):
+    if dkpart.picture is not None and len(dkpart.picture) > 0:
         img_file = ImageManager.get_image(dkpart.picture)
         invPart.uploadImage(img_file)
         ImageManager.clean_cache()
 
 
-def set_parameters(pkpart: DigiPart, invPart):
+def set_parameters(pkpart: DigiPart, invPart: Part):
     #print(params_map)
     # set HTSUS code if we have a pk for this setting
     if htsus_pk:
@@ -214,16 +249,19 @@ def set_parameters(pkpart: DigiPart, invPart):
         #    print(f"Could not find parameter {param[0]} in inventree")
 
 
-def add_digikey_order(order: DigiOrder):
+def add_digikey_order(order: DigiOrder, import_part_cb):
     dk = get_digikey_supplier()
-    po = dk.createPurchaseOrder(supplier_reference=order.order_number)
+    create_date = order.order_date.strftime("%Y-%m-%d")
+    print(f"Creating PO for order {order.order_number} {create_date}")
+    po = dk.createPurchaseOrder(supplier_reference=order.order_number, 
+                                description=f"Order created {create_date}")
     print(f"Created PO {po.reference} for order {order.order_number}")
     for line_item in order.line_items:
         print(line_item.digi_key_part_number)
         part = dk.getSuppliedParts(SKU=line_item.digi_key_part_number)
         if len(part) == 0:
-            part = [import_digikey_part(line_item.digi_key_part_number)]
-            if part:
+            part = [import_part_cb(line_item.digi_key_part_number)]
+            if len(part) > 0 and part[0] is not None:
                 print(f"Warning: Could not find part, importing it {line_item.digi_key_part_number}")
             else:
                 print(f"ERROR: Could not find part, and could not import it {line_item.digi_key_part_number}")
@@ -241,3 +279,15 @@ def add_digikey_order(order: DigiOrder):
         )
     po.issue()
     return po
+
+
+def add_bom_line_item(part: Part, quantity: int, reference: str, line_part: Part):
+    if API is None:
+        load_config()
+    item = BomItem.create(API, {
+        'part': part.pk,
+        'quantity': quantity,
+        'reference': ",".join(reference),
+        'sub_part': line_part.pk
+    })
+    return item

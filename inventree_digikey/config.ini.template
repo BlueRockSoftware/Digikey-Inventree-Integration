@@ -1,0 +1,39 @@
+[DIGIKEY_API]
+CLIENT_ID=XXX
+CLIENT_SECRET=XXX
+
+[MOUSER_API]
+MOUSER_PART_API_KEY=XXX
+MOUSER_ORDER_API_KEY=XXX
+
+[INVENTREE_API]
+URL=https://inventree.brsoft.io
+USER=XXX
+PASSWORD=XXX
+
+[SETTINGS]
+IMPORT_HTSUS=True
+DEFAULT_CATEGORY=Other
+
+[CATEGORIES]
+Resistors:Resistors
+Capacitors:Capacitors
+Transistors:Transistors
+Connectors:Connectors
+Switches:Switches
+Relays:Relays
+Integrated Circuits (ICs):Integrated Circuits
+Discrete Semiconductor Products:Diodes
+Crystals, Oscillators, Resonators:Oscillators
+Connectors, Interconnects:Connectors
+Inductors, Coils, Chokes:Inductors
+Circuit Protection: Other
+Embedded Computers: Boards
+
+[PARAMETERS]
+Resistance:Resistance
+Tolerance:Tolerance
+Power (Watts):Power
+Package / Case:Package
+Voltage - Rated:Voltage
+Capacitance:Capacitance

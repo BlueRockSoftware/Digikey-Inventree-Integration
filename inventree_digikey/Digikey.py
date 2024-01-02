@@ -1,7 +1,9 @@
-from digikey import product_details, status_salesorder_id
+from digikey import product_details, status_salesorder_id, salesorder_history
 import os
 import configparser
 from pathlib import Path
+from datetime import datetime
+from dateutil import parser
 
 from .ImageManager import ImageManager
 
@@ -23,10 +25,32 @@ def get_part_from_part_number(partnum: str, prompt=True):
 
 
 def get_order_from_order_number(order_number: str):
+    all_orders = salesorder_history(start_date="2021-01-01", end_date=datetime.now().strftime("%Y-%m-%d"))
+    found_order = None
+    #print(all_orders)
+    for order in all_orders:
+        #print(f"Order: {order.salesorder_id}")
+        if str(order.salesorder_id) == order_number:
+            found_order = order
+            break
+
     raw = status_salesorder_id(order_number)
     print(raw)
     order = DigiOrder(raw)
+    if found_order is not None:
+        order.order_date = parser.parse(found_order.date_entered)
+    else:
+        order.order_date = datetime.now()
+    #print(f"Order Date: {order.order_date}, Found Order: {found_order}")
     return order
+
+
+def get_order_history(start_date: str, end_date: str):
+    all_orders = salesorder_history(start_date=start_date, end_date=end_date)
+    print(all_orders)
+    for order in all_orders:
+        order_date = parser.parse(order.date_entered).strftime("%Y-%m-%d")
+        print(f"Order: {order.salesorder_id}, Date: {order_date}")
 
 
 class DigiPart:
@@ -109,6 +133,7 @@ class DigiOrder:
         self.raw_value = api_value
         self.order_number = None
         self.line_items = []
+        self.order_date = None
         self.injest_api()
 
     def injest_api(self):
